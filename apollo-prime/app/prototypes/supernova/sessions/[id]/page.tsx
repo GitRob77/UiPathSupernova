@@ -33,10 +33,16 @@ interface RequestEntry {
   has_body: boolean;
 }
 
-interface ReplayResult {
+interface ResultDetail {
+  id: string;
+  seq: number;
+  method: string;
   url: string;
-  status_code: number;
-  error?: string;
+  expected_status: number;
+  actual_status: number | null;
+  response_time_ms: number | null;
+  passed: boolean;
+  error_message: string | null;
 }
 
 export default function SessionDetailPage() {
@@ -45,9 +51,10 @@ export default function SessionDetailPage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [requests, setRequests] = useState<RequestEntry[]>([]);
-  const [replayResults, setReplayResults] = useState<ReplayResult[] | null>(null);
+  const [replayResults, setReplayResults] = useState<ResultDetail[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [replaying, setReplaying] = useState(false);
+  const [replayProgress, setReplayProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [baseURL, setBaseURL] = useState("");
   const [baseURLInput, setBaseURLInput] = useState("");
@@ -92,6 +99,7 @@ export default function SessionDetailPage() {
       setError(null);
       setReplayResults(null);
 
+      // Start async replay job
       const response = await fetch(`/api/sessions/${sessionId}/replay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -101,14 +109,52 @@ export default function SessionDetailPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to replay session");
+        throw new Error("Failed to start replay");
       }
 
       const data = await response.json();
-      setReplayResults(data.results || []);
+      const jobId = data.job_id;
 
-      // Refresh session to update last_replayed_at
-      fetchSessionDetails();
+      // Poll for job completion
+      let status = "running";
+      let pollCount = 0;
+      const maxPolls = 300; // 5 minutes with 1-second polling
+
+      while (status === "running" && pollCount < maxPolls) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        pollCount++;
+
+        // Update progress (linear interpolation from 0 to 90%)
+        setReplayProgress(Math.min(90, Math.round((pollCount / maxPolls) * 90)));
+
+        const statusRes = await fetch(`/api/sessions/${sessionId}/replay/status`);
+        if (!statusRes.ok) {
+          throw new Error("Failed to check replay status");
+        }
+
+        const statusData = await statusRes.json();
+        status = statusData.status;
+
+        if (status === "completed" || status === "done") {
+          setReplayProgress(95);
+
+          // Fetch results
+          const resultsRes = await fetch(`/api/sessions/${sessionId}/results`);
+          if (resultsRes.ok) {
+            const resultsData = await resultsRes.json();
+            setReplayResults(resultsData.results || []);
+            setReplayProgress(100);
+          }
+
+          // Refresh session
+          await fetchSessionDetails();
+          break;
+        }
+      }
+
+      if (status === "running") {
+        throw new Error("Replay job timed out after 5 minutes");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -142,8 +188,8 @@ export default function SessionDetailPage() {
     );
   }
 
-  const successCount = replayResults?.filter((r) => !r.error && r.status_code >= 200 && r.status_code < 300).length || 0;
-  const errorCount = replayResults?.filter((r) => r.error || r.status_code >= 400).length || 0;
+  const successCount = replayResults?.filter((r) => r.passed).length || 0;
+  const errorCount = replayResults?.filter((r) => !r.passed).length || 0;
 
   return (
     <div className="flex flex-col gap-6 p-8">
@@ -268,12 +314,26 @@ export default function SessionDetailPage() {
             {replaying ? "Replaying..." : "Replay Session"}
           </Button>
 
+          {replaying && (
+            <div className="space-y-3">
+              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-blue-500 h-full transition-all"
+                  style={{ width: `${replayProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {replayProgress}% complete
+              </p>
+            </div>
+          )}
+
           {replayResults && (
             <div className="space-y-2">
               <div className="flex gap-4 text-sm">
                 <Badge variant="default" className="gap-1">
                   <span className="font-bold">{successCount}</span>
-                  Successful
+                  Passed
                 </Badge>
                 {errorCount > 0 && (
                   <Badge variant="destructive" className="gap-1">
@@ -304,30 +364,30 @@ export default function SessionDetailPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">#</TableHead>
                     <TableHead className="w-20">Method</TableHead>
                     <TableHead>URL</TableHead>
-                    <TableHead className="w-24">Content Type</TableHead>
-                    <TableHead className="w-16">Body</TableHead>
-                    {replayResults && <TableHead className="w-20">Status</TableHead>}
+                    {replayResults && (
+                      <>
+                        <TableHead className="w-20">Expected</TableHead>
+                        <TableHead className="w-20">Actual</TableHead>
+                        <TableHead className="w-24">Time (ms)</TableHead>
+                        <TableHead className="w-16">Status</TableHead>
+                      </>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {requests.map((req, idx) => {
-                    const replayResult = replayResults?.[idx];
-                    const statusColor =
-                      replayResult?.error
-                        ? "text-destructive"
-                        : replayResult?.status_code >= 200 &&
-                            replayResult?.status_code < 300
-                          ? "text-green-600"
-                          : replayResult?.status_code >= 400
-                            ? "text-destructive"
-                            : "text-yellow-600";
+                    const replayResult = replayResults?.find((r) => r.seq === idx + 1);
 
                     return (
                       <TableRow key={idx}>
+                        <TableCell className="text-xs font-mono text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="font-mono">
+                          <Badge variant="outline" className="font-mono text-xs">
                             {req.method}
                           </Badge>
                         </TableCell>
@@ -336,36 +396,49 @@ export default function SessionDetailPage() {
                             {req.url}
                           </div>
                         </TableCell>
-                        <TableCell className="text-xs">
-                          {req.mime_type ? (
-                            <code className="rounded bg-muted px-2 py-1">
-                              {req.mime_type.split(";")[0]}
-                            </code>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {req.has_body ? (
-                            <Badge variant="secondary" className="text-xs">
-                              Yes
-                            </Badge>
-                          ) : (
-                            "No"
-                          )}
-                        </TableCell>
                         {replayResults && (
-                          <TableCell>
-                            <div className={`font-mono text-xs font-semibold ${statusColor}`}>
-                              {replayResult?.error ? (
-                                <div className="max-w-xs truncate" title={replayResult.error}>
-                                  Error
-                                </div>
+                          <>
+                            <TableCell className="text-xs font-mono">
+                              {replayResult?.expected_status || "—"}
+                            </TableCell>
+                            <TableCell className="text-xs font-mono">
+                              {replayResult?.actual_status ? (
+                                <span
+                                  className={
+                                    replayResult.actual_status >= 200 &&
+                                    replayResult.actual_status < 300
+                                      ? "text-green-600"
+                                      : "text-destructive"
+                                  }
+                                >
+                                  {replayResult.actual_status}
+                                </span>
                               ) : (
-                                replayResult?.status_code || "—"
+                                "—"
                               )}
-                            </div>
-                          </TableCell>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {replayResult?.response_time_ms ? (
+                                `${replayResult.response_time_ms}ms`
+                              ) : (
+                                "—"
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {replayResult ? (
+                                <Badge
+                                  variant={
+                                    replayResult.passed ? "default" : "destructive"
+                                  }
+                                  className="text-xs"
+                                >
+                                  {replayResult.passed ? "Pass" : "Fail"}
+                                </Badge>
+                              ) : (
+                                "—"
+                              )}
+                            </TableCell>
+                          </>
                         )}
                       </TableRow>
                     );
@@ -381,40 +454,66 @@ export default function SessionDetailPage() {
       {replayResults && replayResults.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Replay Results</CardTitle>
+            <CardTitle>Detailed Results</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {replayResults.map((result, idx) => (
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {replayResults.map((result) => (
                 <div
-                  key={idx}
-                  className="flex items-start justify-between rounded-lg border border-border bg-muted/50 p-3 text-sm"
+                  key={result.id}
+                  className={`rounded-lg border p-3 space-y-1 ${
+                    result.passed
+                      ? "border-green-200 bg-green-50"
+                      : "border-destructive/30 bg-destructive/10"
+                  }`}
                 >
-                  <div className="flex-1 space-y-1">
-                    <div className="truncate font-mono text-xs" title={result.url}>
-                      {result.url}
-                    </div>
-                    {result.error && (
-                      <div className="text-xs text-destructive">{result.error}</div>
-                    )}
-                  </div>
-                  <div className="ml-4 text-right font-mono font-semibold">
-                    {result.error ? (
-                      <span className="text-destructive">Error</span>
-                    ) : (
-                      <span
-                        className={
-                          result.status_code >= 200 && result.status_code < 300
-                            ? "text-green-600"
-                            : result.status_code >= 400
-                              ? "text-destructive"
-                              : "text-yellow-600"
-                        }
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs font-mono">
+                        #{result.seq}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs font-mono">
+                        {result.method}
+                      </Badge>
+                      <Badge
+                        variant={result.passed ? "default" : "destructive"}
+                        className="text-xs"
                       >
-                        {result.status_code}
+                        {result.passed ? "Pass" : "Fail"}
+                      </Badge>
+                    </div>
+                    {result.response_time_ms && (
+                      <span className="text-xs text-muted-foreground">
+                        {result.response_time_ms}ms
                       </span>
                     )}
                   </div>
+                  <div className="truncate font-mono text-xs" title={result.url}>
+                    {result.url}
+                  </div>
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>Expected: {result.expected_status}</span>
+                    <span>
+                      Actual:{" "}
+                      <span
+                        className={
+                          result.actual_status
+                            ? result.actual_status >= 200 &&
+                              result.actual_status < 300
+                              ? "text-green-600"
+                              : "text-destructive"
+                            : ""
+                        }
+                      >
+                        {result.actual_status || "N/A"}
+                      </span>
+                    </span>
+                  </div>
+                  {result.error_message && (
+                    <div className="text-xs text-destructive font-mono">
+                      {result.error_message}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
