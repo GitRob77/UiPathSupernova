@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -103,6 +104,42 @@ type SessionRequests struct {
 	Requests  []RequestEntry   `json:"requests"`
 }
 
+type ReplayJobStart struct {
+	JobID  string `json:"job_id"`
+	Status string `json:"status"`
+}
+
+type ReplayJobStatus struct {
+	JobID       string `json:"job_id"`
+	SessionID   string `json:"session_id"`
+	Status      string `json:"status"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type ResultDetail struct {
+	ID            string `json:"id"`
+	Seq           int    `json:"seq"`
+	Method        string `json:"method"`
+	URL           string `json:"url"`
+	ExpectedStatus int   `json:"expected_status"`
+	ActualStatus  *int   `json:"actual_status"`
+	ResponseTimeMs *int   `json:"response_time_ms"`
+	Passed        bool   `json:"passed"`
+	ErrorMessage  *string `json:"error_message"`
+}
+
+type ResultsList struct {
+	JobID   string          `json:"job_id"`
+	Results []ResultDetail  `json:"results"`
+}
+
+type JobState struct {
+	Status      string
+	StartedAt   time.Time
+	CompletedAt *time.Time
+}
+
 func rebaseURL(capturedURL string, baseURL string) (string, error) {
 	parsedCaptured, err := url.Parse(capturedURL)
 	if err != nil {
@@ -168,19 +205,54 @@ func initDB(dbPath string) (*sql.DB, error) {
 }
 
 func createSchema(db *sql.DB) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS sessions (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		har_path TEXT NOT NULL,
-		base_url TEXT NOT NULL DEFAULT 'http://localhost:3000',
-		request_count INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		last_replayed_at DATETIME
-	);
-	`
-	_, err := db.Exec(schema)
-	return err
+	schemas := []string{
+		`CREATE TABLE IF NOT EXISTS sessions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			har_path TEXT NOT NULL,
+			base_url TEXT NOT NULL DEFAULT 'http://localhost:3000',
+			request_count INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			last_replayed_at DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS requests (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+			seq INTEGER NOT NULL,
+			method TEXT NOT NULL,
+			url TEXT NOT NULL,
+			expected_status INTEGER NOT NULL,
+			request_headers TEXT,
+			request_body TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS replay_jobs (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			status TEXT NOT NULL DEFAULT 'running',
+			started_at DATETIME NOT NULL,
+			completed_at DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS results (
+			id TEXT PRIMARY KEY,
+			job_id TEXT NOT NULL REFERENCES replay_jobs(id),
+			request_id TEXT NOT NULL REFERENCES requests(id),
+			seq INTEGER NOT NULL,
+			url TEXT NOT NULL,
+			method TEXT NOT NULL,
+			expected_status INTEGER NOT NULL,
+			actual_status INTEGER,
+			response_time_ms INTEGER,
+			passed BOOLEAN NOT NULL DEFAULT FALSE,
+			error_message TEXT
+		);`,
+	}
+
+	for _, schema := range schemas {
+		if _, err := db.Exec(schema); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func createHARDir(harDir string) error {
@@ -469,33 +541,327 @@ func createSessionHandler(db *sql.DB, harDir string) http.HandlerFunc {
 		}
 		defer f.Close()
 
-		if _, err := io.Copy(f, file); err != nil {
+		harData, err := io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "Failed to read HAR file", http.StatusBadRequest)
+			return
+		}
+
+		f2, err := os.Create(harPath)
+		if err != nil {
+			http.Error(w, "Failed to save HAR file", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = f2.Write(harData)
+		f2.Close()
+		if err != nil {
 			os.Remove(harPath)
 			http.Error(w, "Failed to save HAR file", http.StatusInternalServerError)
 			return
 		}
 
+		var har HAR
+		if err := json.Unmarshal(harData, &har); err != nil {
+			os.Remove(harPath)
+			http.Error(w, "Invalid HAR file format", http.StatusBadRequest)
+			return
+		}
+
+		requestCount := len(har.Log.Entries)
+
 		query := `
-			INSERT INTO sessions (id, name, har_path, base_url, created_at)
-			VALUES (?, ?, ?, ?, ?)
+			INSERT INTO sessions (id, name, har_path, base_url, request_count, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
 		`
-		_, err = db.Exec(query, sessionID, sessionName, harPath, baseURL, time.Now())
+		_, err = db.Exec(query, sessionID, sessionName, harPath, baseURL, requestCount, time.Now())
 		if err != nil {
 			os.Remove(harPath)
 			http.Error(w, "Failed to create session", http.StatusInternalServerError)
 			return
 		}
 
+		insertReq := `INSERT INTO requests (id, session_id, seq, method, url, expected_status) VALUES (?, ?, ?, ?, ?, ?)`
+		for idx, entry := range har.Log.Entries {
+			requestID := fmt.Sprintf("req_%s_%d", sessionID, idx)
+			expectedStatus := 200
+			db.Exec(insertReq, requestID, sessionID, idx+1, entry.Request.Method, entry.Request.URL, expectedStatus)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		session := Session{
-			ID:        sessionID,
-			Name:      sessionName,
-			HARPath:   harPath,
-			BaseURL:   baseURL,
-			CreatedAt: time.Now(),
+			ID:           sessionID,
+			Name:         sessionName,
+			HARPath:      harPath,
+			BaseURL:      baseURL,
+			RequestCount: requestCount,
+			CreatedAt:    time.Now(),
 		}
 		json.NewEncoder(w).Encode(session)
+	}
+}
+
+var jobStates = &sync.Map{}
+
+func startReplayJobHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "id")
+
+		var replayReq ReplayRequest
+		if r.Body != nil {
+			defer r.Body.Close()
+			json.NewDecoder(r.Body).Decode(&replayReq)
+		}
+
+		query := `SELECT id, name, har_path, base_url FROM sessions WHERE id = ?`
+		row := db.QueryRow(query, sessionID)
+
+		var session Session
+		err := row.Scan(&session.ID, &session.Name, &session.HARPath, &session.BaseURL)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Session not found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query session", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+		now := time.Now()
+
+		jobStates.Store(jobID, &JobState{
+			Status:    "running",
+			StartedAt: now,
+		})
+
+		insertJob := `INSERT INTO replay_jobs (id, session_id, status, started_at) VALUES (?, ?, ?, ?)`
+		_, err = db.Exec(insertJob, jobID, sessionID, "running", now)
+		if err != nil {
+			http.Error(w, "Failed to create replay job", http.StatusInternalServerError)
+			return
+		}
+
+		effectiveBaseURL := session.BaseURL
+		if replayReq.BaseURL != "" {
+			effectiveBaseURL = replayReq.BaseURL
+		}
+
+		go executeReplayJob(db, jobID, session, effectiveBaseURL)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(ReplayJobStart{
+			JobID:  jobID,
+			Status: "running",
+		})
+	}
+}
+
+func executeReplayJob(db *sql.DB, jobID string, session Session, baseURL string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in replay job %s: %v", jobID, r)
+		}
+	}()
+
+	harData, err := os.ReadFile(session.HARPath)
+	if err != nil {
+		updateJobStatus(db, jobID, "failed")
+		jobStates.Store(jobID, &JobState{Status: "failed", StartedAt: time.Now(), CompletedAt: &time.Time{}})
+		return
+	}
+
+	var har HAR
+	if err := json.Unmarshal(harData, &har); err != nil {
+		updateJobStatus(db, jobID, "failed")
+		jobStates.Store(jobID, &JobState{Status: "failed", StartedAt: time.Now(), CompletedAt: &time.Time{}})
+		return
+	}
+
+	insertResult := `INSERT INTO results (id, job_id, request_id, seq, url, method, expected_status, actual_status, response_time_ms, passed, error_message)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	for idx, entry := range har.Log.Entries {
+		resultID := fmt.Sprintf("result_%d_%d", time.Now().UnixNano(), idx)
+
+		requestID := fmt.Sprintf("req_%s_%d", session.ID, idx)
+
+		expectedStatus := 200
+
+		rebasedURL, err := rebaseURL(entry.Request.URL, baseURL)
+		if err != nil {
+			db.Exec(insertResult, resultID, jobID, requestID, idx+1, entry.Request.URL, entry.Request.Method, expectedStatus, nil, nil, false, fmt.Sprintf("URL rebase failed: %v", err))
+			continue
+		}
+
+		start := time.Now()
+		statusCode, errorMsg := executeRequest(entry.Request, rebasedURL)
+		responseTime := int(time.Since(start).Milliseconds())
+
+		passed := false
+		var actualStatus *int
+		var errorMsgPtr *string
+
+		if statusCode > 0 {
+			actualStatus = &statusCode
+			passed = (statusCode == expectedStatus)
+			if errorMsg != "" {
+				passed = false
+				errorMsgPtr = &errorMsg
+			}
+		} else if errorMsg != "" {
+			errorMsgPtr = &errorMsg
+		}
+
+		db.Exec(insertResult, resultID, jobID, requestID, idx+1, rebasedURL, entry.Request.Method, expectedStatus, actualStatus, &responseTime, passed, errorMsgPtr)
+	}
+
+	updateJobStatus(db, jobID, "done")
+	now := time.Now()
+	jobStates.Store(jobID, &JobState{Status: "done", StartedAt: time.Now(), CompletedAt: &now})
+}
+
+func executeRequest(harReq HARRequest, rebasedURL string) (int, string) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	var bodyReader io.Reader
+	if harReq.Body != nil && harReq.Body.Text != "" {
+		bodyReader = strings.NewReader(harReq.Body.Text)
+	}
+
+	req, err := http.NewRequest(harReq.Method, rebasedURL, bodyReader)
+	if err != nil {
+		return 0, fmt.Sprintf("Request creation failed: %v", err)
+	}
+
+	for _, header := range harReq.Headers {
+		if !isHopByHopHeader(header.Name) {
+			req.Header.Set(header.Name, header.Value)
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Sprintf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode, ""
+}
+
+func updateJobStatus(db *sql.DB, jobID, status string) {
+	updateStmt := `UPDATE replay_jobs SET status = ?, completed_at = ? WHERE id = ?`
+	db.Exec(updateStmt, status, time.Now(), jobID)
+}
+
+func replayStatusHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "id")
+
+		query := `SELECT id FROM sessions WHERE id = ?`
+		row := db.QueryRow(query, sessionID)
+		var id string
+		err := row.Scan(&id)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Session not found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query session", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		jobQuery := `SELECT id, status, started_at, completed_at FROM replay_jobs WHERE session_id = ? ORDER BY started_at DESC LIMIT 1`
+		jobRow := db.QueryRow(jobQuery, sessionID)
+
+		var jobID, status string
+		var startedAt time.Time
+		var completedAt *time.Time
+
+		err = jobRow.Scan(&jobID, &status, &startedAt, &completedAt)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "No replay job found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query job", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ReplayJobStatus{
+			JobID:       jobID,
+			SessionID:   sessionID,
+			Status:      status,
+			StartedAt:   startedAt,
+			CompletedAt: completedAt,
+		})
+	}
+}
+
+func resultsHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "id")
+
+		query := `SELECT id FROM sessions WHERE id = ?`
+		row := db.QueryRow(query, sessionID)
+		var id string
+		err := row.Scan(&id)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Session not found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query session", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		jobQuery := `SELECT id FROM replay_jobs WHERE session_id = ? ORDER BY started_at DESC LIMIT 1`
+		jobRow := db.QueryRow(jobQuery, sessionID)
+
+		var jobID string
+		err = jobRow.Scan(&jobID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "No replay job found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query job", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		resultsQuery := `SELECT id, seq, method, url, expected_status, actual_status, response_time_ms, passed, error_message FROM results WHERE job_id = ? ORDER BY seq ASC`
+		rows, err := db.Query(resultsQuery, jobID)
+		if err != nil {
+			http.Error(w, "Failed to query results", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var results []ResultDetail
+		for rows.Next() {
+			var result ResultDetail
+			err := rows.Scan(&result.ID, &result.Seq, &result.Method, &result.URL, &result.ExpectedStatus, &result.ActualStatus, &result.ResponseTimeMs, &result.Passed, &result.ErrorMessage)
+			if err != nil {
+				http.Error(w, "Failed to scan result", http.StatusInternalServerError)
+				return
+			}
+			results = append(results, result)
+		}
+
+		if results == nil {
+			results = []ResultDetail{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ResultsList{
+			JobID:   jobID,
+			Results: results,
+		})
 	}
 }
 
@@ -530,7 +896,9 @@ func main() {
 	router.Post("/api/sessions", createSessionHandler(db, cfg.HARDir))
 	router.Get("/api/sessions/{id}", getSessionHandler(db))
 	router.Get("/api/sessions/{id}/requests", getSessionRequestsHandler(db))
-	router.Post("/api/sessions/{id}/replay", replaySessionHandler(db))
+	router.Post("/api/sessions/{id}/replay", startReplayJobHandler(db))
+	router.Get("/api/sessions/{id}/replay/status", replayStatusHandler(db))
+	router.Get("/api/sessions/{id}/results", resultsHandler(db))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	server := &http.Server{
