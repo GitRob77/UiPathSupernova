@@ -1,0 +1,9 @@
+{
+  "title": "Maestro#1",
+  "description": "UiPath Maestro process orchestration prototype — home dashboard, process instances listing, and process detail with instance management, monitoring, and optimization tabs.",
+  "url": null,
+  "status": "ready",
+  "tags": ["dashboard", "listing", "process-mining"],
+  "author": "Mihai Bozgan",
+  "createdAt": "2026-03-24"
+}

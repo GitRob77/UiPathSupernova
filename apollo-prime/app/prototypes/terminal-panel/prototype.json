@@ -1,0 +1,9 @@
+{
+  "title": "Terminal Panel",
+  "description": "Bottom terminal panel with interactive shell, output log, and problems tabs — toggled from the status bar",
+  "url": null,
+  "status": "wip",
+  "tags": ["canvas", "terminal", "bottom-panel"],
+  "author": "Mihai Bozgan",
+  "createdAt": "2026-04-21"
+}

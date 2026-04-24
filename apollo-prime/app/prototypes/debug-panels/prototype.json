@@ -1,0 +1,9 @@
+{
+  "title": "DebugPanels",
+  "description": "Debug panels prototype using canvas layout",
+  "url": null,
+  "status": "wip",
+  "tags": ["canvas", "debug"],
+  "author": "Mihai Bozgan",
+  "createdAt": "2026-04-01"
+}

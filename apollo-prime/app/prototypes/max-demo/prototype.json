@@ -1,0 +1,9 @@
+{
+  "title": "MaxDemo",
+  "description": "Canvas workspace with a MaxDemo solution containing an RPA project and an Agent.",
+  "url": null,
+  "status": "wip",
+  "tags": ["canvas", "rpa", "agent"],
+  "author": "Lucian Maxim",
+  "createdAt": "2026-03-27"
+}

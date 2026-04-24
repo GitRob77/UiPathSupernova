@@ -1,0 +1,9 @@
+{
+  "title": "Canvas",
+  "description": "Canvas-style workspace with explorer, data manager, health analyzer, and properties side panels.",
+  "url": null,
+  "status": "wip",
+  "tags": ["canvas", "workspace", "side-panels"],
+  "author": "Lucian Maxim",
+  "createdAt": "2026-03-23"
+}

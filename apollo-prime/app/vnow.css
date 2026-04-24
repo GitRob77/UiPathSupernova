@@ -1,0 +1,219 @@
+/* ─────────────────────────────────────────────────────────
+   vnow — fork of apollo-wind light with custom overrides.
+   Apply alongside `light` on <body> (e.g. class="light vnow").
+   Remove `vnow` to compare against the base apollo-wind light theme.
+   ───────────────────────────────────────────────────────── */
+.vnow {
+  /* Base font size (apollo-wind default is 14px) */
+  --font-size-base: 12px;
+  --font-size-s: 11px;
+  --font-size-xs: 10px;
+
+  /* Scrollbar thumb — used by both native WebKit and Radix ScrollArea */
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+  --scrollbar-thumb-active: rgba(0, 0, 0, 0.4);
+
+  /* Canvas workspace tab bar */
+  --color-tab-bar-bg: var(--color-background);
+  --color-tab-active-bg: var(--color-background);
+  --color-tab-inactive-hover-bg: var(--color-background-hover);
+
+  /* Canvas workspace tab close button */
+  --color-tab-close-bg: var(--color-background-secondary);
+  --color-tab-close-bg-hover: var(--color-background-selected);
+
+  /* Canvas grid dot pattern */
+  --canvas-dot-color: rgba(156, 163, 175, 0.3);
+
+  /* Canvas type accent colors */
+  --canvas-agent-accent: #6366f1;            /* indigo-500 */
+  --canvas-api-workflow-accent: #10b981;     /* emerald-500 */
+  --canvas-app-accent: #3b82f6;              /* blue-500 */
+  --canvas-rpa-workflow-accent: #f59e0b;     /* amber-500 */
+  --canvas-agentic-process-accent: #a855f7;  /* purple-500 */
+
+  font-size: var(--font-size-base);
+}
+
+/* Dark theme overrides — swap tab bar/active backgrounds so the active tab reads as elevated */
+.dark.vnow {
+  --color-tab-bar-bg: var(--color-background);
+  --color-tab-active-bg: var(--color-background-secondary);
+}
+
+/* Force base font size on apollo-wind portalled overlays (popovers, dropdowns, context menus) */
+.vnow [data-radix-popper-content-wrapper],
+.vnow [data-radix-popper-content-wrapper] *,
+.vnow [data-radix-menu-content],
+.vnow [data-radix-menu-content] * {
+  font-size: var(--font-size-base) !important;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Canvas card layout — floating panel/canvas/statusbar cards
+   ───────────────────────────────────────────────────────── */
+
+/* Muted gray background for the area below the header */
+.vnow .canvas-layout-root {
+  background-color: var(--color-background-secondary);
+}
+
+.vnow .canvas-layout-row {
+  gap: 6px;
+  padding: 6px;
+}
+
+/* Side panels */
+.vnow .canvas-panel-outer {
+  border-radius: 8px;
+}
+
+.vnow .canvas-panel-inner {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Left panels: remove outer right border (canvas-facing edge) */
+.vnow .side-panel-left .side-panel-content {
+  border-right: none;
+}
+
+/* Left panels: hide rail divider when collapsed */
+.vnow .canvas-panel-outer[data-open="false"] .side-panel-left .side-panel-rail {
+  border-right: none;
+}
+
+/* Right panels: remove outer left border (canvas-facing edge) */
+.vnow .side-panel-right .side-panel-content {
+  border-left: none;
+}
+
+/* Right panels: hide rail divider when collapsed */
+.vnow .canvas-panel-outer[data-open="false"] .side-panel-right .side-panel-rail {
+  border-left: none;
+}
+
+/* Canvas workspace (direct child of <main>) */
+.vnow .canvas-layout-main > * {
+  border-radius: 8px;
+}
+
+/* Canvas tab bar — no separators between tabs */
+.vnow .canvas-tab-bar [data-tab-id] {
+  border-right: none;
+}
+
+/* Toolbar — card surface, no border */
+.vnow .canvas-layout-toolbar {
+  border-bottom: none;
+  background-color: var(--color-background);
+}
+
+/* Bottom panels (debug / terminal) — hide the 1px top border line.
+   The resize hit zone above remains active. */
+.vnow .bottom-panel-top-edge {
+  display: none;
+}
+
+/* Bottom panel wrapper — floating card, matching side-panel gap + radius */
+.vnow .canvas-layout-bottom {
+  margin-top: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Status bar — floating card with full border */
+.vnow .canvas-layout-footer {
+  padding: 0 6px 6px;
+}
+
+.vnow .canvas-layout-footer > * {
+  border-radius: 8px;
+  border: none;
+  background-color: var(--color-background);
+}
+
+/* ─────────────────────────────────────────────────────────
+   macOS-style scrollbars
+   ───────────────────────────────────────────────────────── */
+
+/* --- Native scrollbars (WebKit/Blink) --- */
+
+.vnow *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background-color: transparent;
+}
+
+.vnow *::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+.vnow *::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.vnow *:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+/* Keep scrollbar visible when hovering the explorer panel (incl. divider/collapse button) */
+.vnow .explorer-tree:hover *::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+.vnow *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+.vnow *::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+.vnow *::-webkit-scrollbar-button {
+  display: none;
+}
+
+.vnow *::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
+/* --- Radix UI ScrollArea (apollo-wind) --- */
+
+.vnow [data-radix-scroll-area-scrollbar] {
+  width: 10px !important;
+  padding: 2px !important;
+  background: transparent !important;
+  border: none !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.vnow [data-radix-scroll-area-scrollbar][data-orientation="horizontal"] {
+  height: 10px !important;
+  width: auto !important;
+}
+
+/* Show scrollbar on hover of the scroll area */
+.vnow [data-radix-scroll-area-viewport]:hover ~ [data-radix-scroll-area-scrollbar],
+.vnow [data-radix-scroll-area-scrollbar]:hover,
+.vnow [data-radix-scroll-area-scrollbar][data-state="visible"] {
+  opacity: 1;
+}
+
+.vnow [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb] {
+  background-color: var(--scrollbar-thumb) !important;
+  border-radius: 10px !important;
+}
+
+.vnow [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb]:hover {
+  background-color: var(--scrollbar-thumb-hover) !important;
+}
+
+.vnow [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb]:active {
+  background-color: var(--scrollbar-thumb-active) !important;
+}

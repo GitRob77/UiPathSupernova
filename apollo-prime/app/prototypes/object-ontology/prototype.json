@@ -1,0 +1,9 @@
+{
+  "title": "Object Ontology",
+  "description": "Palantir Ontology Manager clone — define object types, properties, link types, action types, and visualize relationships in an interactive graph.",
+  "url": null,
+  "status": "wip",
+  "tags": ["ontology", "graph", "data-modeling", "listing"],
+  "author": "Andrei Vintila",
+  "createdAt": "2026-03-11"
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Apps Troubleshoot",
+  "description": "Orchestrator App Runs experience — a new tab under Automations to view and troubleshoot individual app execution runs, similar to Jobs.",
+  "url": null,
+  "status": "wip",
+  "tags": ["orchestrator", "apps", "troubleshoot", "listing"],
+  "author": "Irina Capatina",
+  "createdAt": "2026-03-23"
+}

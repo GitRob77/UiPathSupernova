@@ -1,0 +1,9 @@
+{
+  "title": "Screenplay",
+  "description": "UI Automation Task Debugger — step-by-step visualization of automated UI workflows with execution metadata, prompt editing, and AI assistant.",
+  "url": null,
+  "status": "ready",
+  "tags": ["debugger", "automation", "canvas"],
+  "author": "Lucian Maxim",
+  "createdAt": "2026-03-30"
+}

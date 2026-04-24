@@ -1,0 +1,8 @@
+{
+  "title": "Create New App",
+  "description": "Studio Web experience for creating a new app — pick from RPA App, JS App, or Coded App",
+  "status": "wip",
+  "tags": ["studio-web", "creation-flow"],
+  "author": "Irina Capatina",
+  "createdAt": "2026-03-11"
+}

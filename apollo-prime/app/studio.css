@@ -1,0 +1,135 @@
+/* ─────────────────────────────────────────────────────────
+   studio — fork of apollo-wind light with custom overrides.
+   Apply alongside `light` on <body> (e.g. class="light studio").
+   Remove `studio` to compare against the base apollo-wind light theme.
+   ───────────────────────────────────────────────────────── */
+.studio {
+  /* Base font size (apollo-wind default is 14px) */
+  --font-size-base: 12px;
+  --font-size-s: 11px;
+  --font-size-xs: 10px;
+
+  /* Scrollbar thumb — used by both native WebKit and Radix ScrollArea */
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+  --scrollbar-thumb-active: rgba(0, 0, 0, 0.4);
+
+  /* Canvas workspace tab bar */
+  --color-tab-bar-bg: var(--color-background-secondary);
+  --color-tab-active-bg: var(--color-background);
+  --color-tab-inactive-hover-bg: var(--color-background-hover);
+
+  /* Canvas workspace tab close button */
+  --color-tab-close-bg: var(--color-background-secondary);
+  --color-tab-close-bg-hover: var(--color-background-selected);
+
+  /* Canvas grid dot pattern */
+  --canvas-dot-color: rgba(156, 163, 175, 0.3);
+
+  /* Canvas type accent colors */
+  --canvas-agent-accent: #6366f1;            /* indigo-500 */
+  --canvas-api-workflow-accent: #10b981;     /* emerald-500 */
+  --canvas-app-accent: #3b82f6;              /* blue-500 */
+  --canvas-rpa-workflow-accent: #f59e0b;     /* amber-500 */
+  --canvas-agentic-process-accent: #a855f7;  /* purple-500 */
+
+  font-size: var(--font-size-base);
+}
+
+/* Dark theme overrides — swap tab bar/active backgrounds so the active tab reads as elevated */
+.dark.studio {
+  --color-tab-bar-bg: var(--color-background);
+  --color-tab-active-bg: var(--color-background-secondary);
+}
+
+/* Force base font size on apollo-wind portalled overlays (popovers, dropdowns, context menus) */
+.studio [data-radix-popper-content-wrapper],
+.studio [data-radix-popper-content-wrapper] *,
+.studio [data-radix-menu-content],
+.studio [data-radix-menu-content] * {
+  font-size: var(--font-size-base) !important;
+}
+
+/* ─────────────────────────────────────────────────────────
+   macOS-style scrollbars
+   ───────────────────────────────────────────────────────── */
+
+/* --- Native scrollbars (WebKit/Blink) --- */
+
+.studio *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background-color: transparent;
+}
+
+.studio *::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+.studio *::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.studio *:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+/* Keep scrollbar visible when hovering the explorer panel (incl. divider/collapse button) */
+.studio .explorer-tree:hover *::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+.studio *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+.studio *::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+.studio *::-webkit-scrollbar-button {
+  display: none;
+}
+
+.studio *::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
+/* --- Radix UI ScrollArea (apollo-wind) --- */
+
+.studio [data-radix-scroll-area-scrollbar] {
+  width: 10px !important;
+  padding: 2px !important;
+  background: transparent !important;
+  border: none !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.studio [data-radix-scroll-area-scrollbar][data-orientation="horizontal"] {
+  height: 10px !important;
+  width: auto !important;
+}
+
+/* Show scrollbar on hover of the scroll area */
+.studio [data-radix-scroll-area-viewport]:hover ~ [data-radix-scroll-area-scrollbar],
+.studio [data-radix-scroll-area-scrollbar]:hover,
+.studio [data-radix-scroll-area-scrollbar][data-state="visible"] {
+  opacity: 1;
+}
+
+.studio [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb] {
+  background-color: var(--scrollbar-thumb) !important;
+  border-radius: 10px !important;
+}
+
+.studio [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb]:hover {
+  background-color: var(--scrollbar-thumb-hover) !important;
+}
+
+.studio [data-radix-scroll-area-scrollbar] > [data-radix-scroll-area-thumb]:active {
+  background-color: var(--scrollbar-thumb-active) !important;
+}
