@@ -91,6 +91,18 @@ type ReplayResponse struct {
 	Results   []ReplayResult  `json:"results"`
 }
 
+type RequestEntry struct {
+	Method      string `json:"method"`
+	URL         string `json:"url"`
+	MimeType    string `json:"mime_type,omitempty"`
+	HasBody     bool   `json:"has_body"`
+}
+
+type SessionRequests struct {
+	SessionID string           `json:"session_id"`
+	Requests  []RequestEntry   `json:"requests"`
+}
+
 func rebaseURL(capturedURL string, baseURL string) (string, error) {
 	parsedCaptured, err := url.Parse(capturedURL)
 	if err != nil {
@@ -200,6 +212,59 @@ func getSessionHandler(db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(session)
+	}
+}
+
+func getSessionRequestsHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "id")
+
+		query := `SELECT id, name, har_path FROM sessions WHERE id = ?`
+		row := db.QueryRow(query, sessionID)
+
+		var session Session
+		err := row.Scan(&session.ID, &session.Name, &session.HARPath)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Session not found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to query session", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		harData, err := os.ReadFile(session.HARPath)
+		if err != nil {
+			http.Error(w, "Failed to read HAR file", http.StatusInternalServerError)
+			return
+		}
+
+		var har HAR
+		if err := json.Unmarshal(harData, &har); err != nil {
+			http.Error(w, "Failed to parse HAR file", http.StatusBadRequest)
+			return
+		}
+
+		requests := []RequestEntry{}
+		for _, entry := range har.Log.Entries {
+			mimeType := ""
+			if entry.Request.Body != nil {
+				mimeType = entry.Request.Body.MimeType
+			}
+			req := RequestEntry{
+				Method:   entry.Request.Method,
+				URL:      entry.Request.URL,
+				MimeType: mimeType,
+				HasBody:  entry.Request.Body != nil && entry.Request.Body.Text != "",
+			}
+			requests = append(requests, req)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SessionRequests{
+			SessionID: sessionID,
+			Requests:  requests,
+		})
 	}
 }
 
@@ -464,6 +529,7 @@ func main() {
 	router.Get("/api/sessions", listSessionsHandler(db))
 	router.Post("/api/sessions", createSessionHandler(db, cfg.HARDir))
 	router.Get("/api/sessions/{id}", getSessionHandler(db))
+	router.Get("/api/sessions/{id}/requests", getSessionRequestsHandler(db))
 	router.Post("/api/sessions/{id}/replay", replaySessionHandler(db))
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
