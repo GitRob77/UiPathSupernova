@@ -203,6 +203,36 @@ func getSessionHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func listSessionsHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		query := `SELECT id, name, request_count, created_at, last_replayed_at FROM sessions ORDER BY created_at DESC`
+		rows, err := db.Query(query)
+		if err != nil {
+			http.Error(w, "Failed to query sessions", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var sessions []Session
+		for rows.Next() {
+			var session Session
+			err := rows.Scan(&session.ID, &session.Name, &session.RequestCount, &session.CreatedAt, &session.ReplayedAt)
+			if err != nil {
+				http.Error(w, "Failed to scan session", http.StatusInternalServerError)
+				return
+			}
+			sessions = append(sessions, session)
+		}
+
+		if sessions == nil {
+			sessions = []Session{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(sessions)
+	}
+}
+
 func replaySessionHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID := chi.URLParam(r, "id")
@@ -431,6 +461,7 @@ func main() {
 	}))
 
 	router.Get("/health", healthHandler)
+	router.Get("/api/sessions", listSessionsHandler(db))
 	router.Post("/api/sessions", createSessionHandler(db, cfg.HARDir))
 	router.Get("/api/sessions/{id}", getSessionHandler(db))
 	router.Post("/api/sessions/{id}/replay", replaySessionHandler(db))
