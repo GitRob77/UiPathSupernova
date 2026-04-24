@@ -1,0 +1,8 @@
+
+> apollo-prime@0.1.0 dev C:\Users\robert.wagner\OneDrive - UiPath\01 Team TestSuite\08 Development\UiPathSupernova\apollo-prime
+> next dev
+
+Der Befehl "next" ist entweder falsch geschrieben oder
+konnte nicht gefunden werden.
+ ELIFECYCLE  Command failed with exit code 1.
+ WARN   Local package.json exists, but node_modules missing, did you mean to install?

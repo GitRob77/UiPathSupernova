@@ -1,0 +1,8 @@
+{
+  "title": "Supernova",
+  "description": "HTTP Traffic Intelligence Platform – import HAR sessions, replay HTTP requests, and analyze pass/fail results.",
+  "status": "in-progress",
+  "tags": ["testing", "http", "replay", "performance"],
+  "author": "ARCH Neumann",
+  "createdAt": "2026-04-24"
+}

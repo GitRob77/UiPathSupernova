@@ -1,0 +1,20 @@
+{
+  "skill_name": "architect",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Design the complete architecture for the HAR capture Chrome extension component. We need to capture HTTP/HTTPS traffic from browser navigation, support filtering by URL patterns, handle binary data, and export HAR format files to a local service.",
+      "expected_output": "System diagram showing capture flow, component breakdown (manifest, background worker, HAR builder), data structures, export mechanism, performance considerations"
+    },
+    {
+      "id": 2,
+      "prompt": "We need to architect the correlation engine for our replay system. It must handle session tokens, CSRF tokens, timestamps, UUIDs, and custom patterns. We'll support JSON Path, XPath, Regex, and header extraction. What's the best architecture for this with performance in mind?",
+      "expected_output": "Component spec with correlation rule format, extraction algorithms, caching strategy, performance optimizations, test approach, data contracts"
+    },
+    {
+      "id": 3,
+      "prompt": "Design the distributed load testing architecture for UiPathSupernova. We want to support 1000+ concurrent users, distribute across worker nodes, aggregate results, and integrate with UiPath Orchestrator for job management. Include scalability, security, and monitoring.",
+      "expected_output": "System diagram with orchestrator and workers, component specs, scaling strategy, security measures, results aggregation, UiPath integration points, implementation roadmap"
+    }
+  ]
+}

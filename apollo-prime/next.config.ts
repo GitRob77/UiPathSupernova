@@ -5,6 +5,16 @@ const nextConfig: NextConfig = {
   devIndicators: {
     position: "bottom-left",
   },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: "/api/:path*",
+          destination: "http://localhost:8080/api/:path*",
+        },
+      ],
+    };
+  },
 };
 
 export default nextConfig;
