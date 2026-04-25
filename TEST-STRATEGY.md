@@ -56,6 +56,26 @@ This strategy establishes comprehensive test coverage across all system layers t
                        - Components
 ```
 
+### Critical Principle: Outcome Validation
+
+**REQUIREMENT:** Tests must validate **actual execution outcomes**, not just system state changes.
+
+**What This Means:**
+
+❌ **Insufficient:** Testing that a replay job status changes to "completed"
+✅ **Required:** Testing that HTTP requests were actually sent, responses received, and results correctly validated
+
+**Validation Checklist for Replay Tests:**
+1. **Execution Proof:** Verify HTTP requests were actually sent to target URLs
+2. **Response Capture:** Confirm responses were received and stored
+3. **Status Validation:** Check expected vs actual status codes are compared correctly
+4. **Pass/Fail Logic:** Verify pass/fail determination matches actual execution
+5. **Error Handling:** Confirm errors are captured with accurate messages
+6. **Results Accuracy:** Ensure stored results reflect what actually happened
+
+**Why This Matters:**
+After MVP release, major functions broke because tests only validated job lifecycle (start/complete) without confirming the replay actually executed correctly. Tests must prove the system **does what it claims**, not just that it transitions between states.
+
 ---
 
 ## Phase 1: Backend Testing (Sprint 1)
@@ -131,10 +151,21 @@ TestResultsEndpoint_NoResults
 
 ### 1.3 Async Replay Engine Tests
 
-**Priority: HIGH**
+**Priority: CRITICAL**
+
+**IMPORTANT:** Tests must validate **actual replay execution outcomes**, not just job lifecycle. It's not enough to test that a job starts - we must verify that HTTP requests are actually sent, responses are received, and results are correctly validated.
 
 ```go
 // service/replay_test.go
+
+// Outcome Validation Tests (CRITICAL)
+TestReplayEngine_ActualHTTPRequestSent          // Verify request actually sent to target
+TestReplayEngine_ResponseReceived               // Verify response captured
+TestReplayEngine_StatusCodeValidation           // Verify expected vs actual status comparison
+TestReplayEngine_PassFailDetermination          // Verify correct pass/fail logic
+TestReplayEngine_ResultsAccuracy                // Verify results match actual execution
+
+// Execution Flow Tests
 TestReplayEngine_SequentialRequests
 TestReplayEngine_ConcurrentSafety
 TestReplayEngine_ErrorHandling
@@ -143,7 +174,10 @@ TestReplayEngine_ResultsStorage
 TestReplayEngine_JobStatusUpdates
 ```
 
-**Why Critical:** Race conditions in async engine caused results inconsistencies in MVP.
+**Why Critical:** 
+- Race conditions in async engine caused results inconsistencies in MVP
+- **Must validate actual replay execution, not just job lifecycle** - need to prove requests were sent and responses validated
+- Results must accurately reflect what actually happened during replay
 
 ---
 
@@ -222,7 +256,7 @@ describe('Session Detail Page', () => {
 
 ```typescript
 // e2e/happy-path.spec.ts
-test('Complete HAR replay flow', async ({ page }) => {
+test('Complete HAR replay flow with outcome validation', async ({ page }) => {
   // 1. Navigate to sessions page
   // 2. Upload sample HAR file
   // 3. Verify session created
@@ -231,7 +265,13 @@ test('Complete HAR replay flow', async ({ page }) => {
   // 6. Wait for replay completion
   // 7. Navigate to results
   // 8. Verify results displayed
-  // 9. Check pass/fail counts match expected
+  // 9. CRITICAL: Validate actual replay outcomes:
+  //    - Check each request shows actual status code received
+  //    - Verify pass/fail determination is correct
+  //    - Confirm response times are captured
+  //    - Validate error messages for failed requests
+  // 10. Check pass/fail counts match expected
+  // 11. Verify results prove requests were actually executed
 })
 
 // e2e/error-handling.spec.ts
